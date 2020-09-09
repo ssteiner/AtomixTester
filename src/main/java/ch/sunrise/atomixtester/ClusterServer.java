@@ -1,22 +1,22 @@
 package ch.sunrise.atomixtester;
 
+import io.atomix.cluster.MemberId;
 import io.atomix.cluster.Node;
 import io.atomix.cluster.discovery.BootstrapDiscoveryProvider;
-import io.atomix.cluster.discovery.NodeDiscoveryProvider;
 import io.atomix.core.Atomix;
-import io.atomix.core.AtomixBuilder;
+import io.atomix.core.election.LeaderElection;
+import io.atomix.core.election.LeaderElectionBuilder;
+import io.atomix.core.election.LeadershipEvent;
 import io.atomix.core.map.DistributedMap;
 import io.atomix.core.map.DistributedMapBuilder;
 import io.atomix.core.map.MapEvent;
-import io.atomix.core.map.MapEventListener;
 import io.atomix.core.profile.Profile;
 import io.atomix.utils.net.Address;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-public class ClusterServer implements MapEventListener<String, String> {
+public class ClusterServer {
 
 
     private ClusterConfiguration config;
@@ -24,14 +24,21 @@ public class ClusterServer implements MapEventListener<String, String> {
     private ILogger logger;
     private Atomix atomix;
     private DistributedMap<String, String> map;
-    private String mapName = "my-map";
+    private String mapName = "my-map", electionName = "my-election";
+    private MemberId myMemberId;
+    private LeaderElection<String> election;
+    private String currentLeader;
 
     public ClusterServer(ClusterConfiguration config, String memberId, ILogger logger) {
         this.config = config;
         this.memberId = memberId;
         this.logger = logger;
+        myMemberId = new MemberId(memberId);
     }
 
+    /**
+     * initialize atomix
+     */
     public void initialize() {
         var builder = Atomix.builder();
 
@@ -43,8 +50,8 @@ public class ClusterServer implements MapEventListener<String, String> {
             return;
         }
         var otherAddresses = config.getMembers().stream().filter(u -> !u.getMemberId().equals(memberId));
-        var myAddress = new Address(myClusterAddress.getIpOrHost(), myClusterAddress.getPort());
-        builder = builder.withMemberId(memberId).withAddress(myAddress);
+        //var myAddress = new Address(myClusterAddress.getIpOrHost(), myClusterAddress.getPort());
+        builder = builder.withMemberId(myMemberId).withHost(myClusterAddress.getIpOrHost()).withPort(myClusterAddress.getPort());
 
         List<Node> nodes = new ArrayList<>();
         otherAddresses.forEach(u -> nodes.add(Node.builder().withId(u.getMemberId())
@@ -57,15 +64,24 @@ public class ClusterServer implements MapEventListener<String, String> {
         atomix = builder.build();
     }
 
+    /**
+     * start atomix, then build a distributed map, register an event handler on it,
+     * build and an election builder, register an event on it and run an initial election
+     */
     public void start() {
         atomix.start().join();
 
         DistributedMapBuilder<String, String> mapBuilder = atomix.mapBuilder(mapName);
         map = mapBuilder.withCacheEnabled().build();
-
-        map.addListener(this);
-
+        map.addListener(this::event);
         map.put("Status-" + memberId, "online");
+
+        LeaderElectionBuilder<String> electionBuilder = atomix.leaderElectionBuilder(electionName);
+        election = electionBuilder.build();
+        election.addListener(this::leadershipChanged);
+        var myMemberId = atomix.getMembershipService().getLocalMember().id();
+        //run initial election
+        var electionResult = election.run(myMemberId.id());
 
 //        MultiRaftProtocol protocol = MultiRaftProtocol.builder()
 //                .withReadConsistency(ReadConsistency.LINEARIZABLE)
@@ -83,6 +99,9 @@ public class ClusterServer implements MapEventListener<String, String> {
 
     }
 
+    /**
+     * read from and write to distributed map
+     */
     public void runTest() {
         var status1 = map.get("Status-member1");
         var status2 = map.get("Status-member2");
@@ -90,52 +109,56 @@ public class ClusterServer implements MapEventListener<String, String> {
 //        Map<String, String> myMap = atomix.getMap(mapName);
     }
 
-    public void runTest(int testNumber) {
+
+    public void writeToMap(int testNumber) {
         map.put("Test-" + memberId, "" + testNumber);
     }
 
+    /**
+     * stop atomix, remove all event listeners and close open resources
+     */
     public void stop() {
-        map.removeListener(this);
+        log("Stopping " + memberId, 4);
+        map.removeListener(this::event);
         map.close();
+        election.removeListener(this::leadershipChanged);
         atomix.stop().join();
     }
 
-    private void test() {
-//        Atomix atomix = Atomix.builder()
-//                .withMemberId("member-1")
-//                .withAddress("10.192.19.181:5679")
-//                .withMembershipProvider(BootstrapDiscoveryProvider.builder()
-//                        .withNodes(
-//                                Node.builder()
-//                                        .withId("member1")
-//                                        .withAddress("10.192.19.181:5679")
-//                                        .build(),
-//                                Node.builder()
-//                                        .withId("member2")
-//                                        .withAddress("10.192.19.182:5679")
-//                                        .build(),
-//                                Node.builder()
-//                                        .withId("member3")
-//                                        .withAddress("10.192.19.183:5679")
-//                                        .build())
-//                        .build())
-//                .withManagementGroup(RaftPartitionGroup.builder("system")
-//                        .withNumPartitions(1)
-//                        .withMembers("member-1", "member-2", "member-3")
-//                        .build())
-//                .withPartitionGroups(
-//                        PrimaryBackupPartitionGroup.builder("data")
-//                                .withNumPartitions(32)
-//                                .build())
-//                .build();
+    /**
+     * Removes from leader election
+     */
+    public void removeFromLeaderElection() {
+        log("Withdrawing " + memberId + " from leader election", 4);
+        if (memberId.equals(currentLeader)) {
+            election.withdraw(memberId);
+            //var newMembership = election.run(memberId);
+        }
+//        var leaderShip = election.run(memberId);
+//        if (leaderShip.leader().id() == memberId) // I'm the leader
+
+    }
+
+    /**
+     * promotes current member to leader
+     */
+    public void promoteToLeader() {
+        log("Promoting " + memberId + " to leader", 4);
+        election.anoint(memberId);
     }
 
     private void log(String message, int severity) {
         logger.Log(message, severity);
     }
 
+    private void leadershipChanged(LeadershipEvent<String> event) {
+        var newLeader = event.newLeadership().leader().id();
+        currentLeader = newLeader;
+        var oldLeaderShip = event.oldLeadership();
+        var oldLeader = event.oldLeadership().leader().id();
+        logger.Log(memberId + ": Leadership has changed - new leader: " + newLeader + " old leader " + oldLeader, 4);
+    }
 
-    @Override
     public void event(MapEvent<String, String> stringStringMapEvent) {
         switch (stringStringMapEvent.type()) {
             case INSERT:

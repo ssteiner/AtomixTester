@@ -37,17 +37,20 @@ public class Main {
         main.runTest();
         backup.runTest();
 
+        main.removeFromLeaderElection(); // I expect this to promote member2 as leader, but it doesn't happen
+        backup.promoteToLeader(); // only here is a new leader elected
+
 //        main.stop();
 //        backup.runTest(1); //=> throws a PrimitiveExceptionTimeout
 //        main.initialize();
 //        main.start();
 
-        backup.stop();
-        main.runTest(1);
+        backup.stop(); // here I'd expect main (member1) to be elected the primary, but nothing is happening
+        main.writeToMap(1);
         backup.initialize();
         backup.start();
-        main.runTest(2);
-        backup.runTest(2);
+        main.writeToMap(2);
+        backup.writeToMap(2);
 
         main.stop();
         backup.stop();
