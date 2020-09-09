@@ -41,7 +41,7 @@ public class Main {
         main.runLeaderElection();
 
 //        main.stop();
-//        backup.runTest(1); //=> throws a PrimitiveExceptionTimeout
+//        backup.writeToMap(1); //=> throws a PrimitiveExceptionTimeout
 //        main.initialize();
 //        main.start();
 
