@@ -132,11 +132,14 @@ public class ClusterServer {
         log("Withdrawing " + memberId + " from leader election", 4);
         if (memberId.equals(currentLeader)) {
             election.withdraw(memberId);
-            //var newMembership = election.run(memberId);
         }
 //        var leaderShip = election.run(memberId);
 //        if (leaderShip.leader().id() == memberId) // I'm the leader
+    }
 
+    public void runLeaderElection() {
+        var newStatus = election.run(memberId);
+        log("New leader is " + newStatus.leader().id(), 4);
     }
 
     /**
