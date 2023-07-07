@@ -24,22 +24,22 @@
         <dependency>
             <groupId>io.atomix</groupId>
             <artifactId>atomix</artifactId>
-            <version>3.1.8</version>
+            <version>3.1.9</version>
         </dependency>
         <dependency>
             <groupId>io.atomix</groupId>
             <artifactId>atomix-raft</artifactId>
-            <version>3.1.8</version>
+            <version>3.1.9</version>
         </dependency>
         <dependency>
             <groupId>io.atomix</groupId>
             <artifactId>atomix-primary-backup</artifactId>
-            <version>3.1.8</version>
+            <version>3.1.9</version>
         </dependency>
         <dependency>
             <groupId>io.atomix</groupId>
             <artifactId>atomix-gossip</artifactId>
-            <version>3.1.8</version>
+            <version>3.1.9</version>
         </dependency>
     </dependencies>
 
